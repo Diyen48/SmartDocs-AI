@@ -1,81 +1,150 @@
-import utils as Utils
-import os as OS
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import OpenAIEmbeddings
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
-from langchain_chroma import Chroma
+from pymongo import MongoClient
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_mongodb import MongoDBAtlasVectorSearch, MongoDBChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.documents import Document
+import utils as Utils
+
+
+def _format_docs(docs):
+
+    formatted = []
+
+    for doc in docs:
+
+        page = doc.metadata.get("page", 0) + 1
+
+        filename = doc.metadata.get("filename", "Unknown")
+
+        formatted.append(
+            f"""
+                Source: {filename}
+                Page: {page}
+
+                {doc.page_content}
+                """
+            )
+
+    return "\n\n-----------------\n\n".join(formatted)
+
 
 class NewsChat:
-    store = {}
-    session_id = ''
-    rag_chain = None
+    def __init__(self, session_id: str, document_id: str = None):
+        print("Creating NewsChat...")
+        if document_id:
+            self.session_id = f"{session_id}_{document_id}"
+        else:
+            self.session_id = session_id
 
-    def __init__(self, article_id: str):
-        oai_key = OS.getenv("OPENAI_API_KEY")
-        embeddings = OpenAIEmbeddings(openai_api_key=oai_key)
-        self.session_id = article_id
-        
-        # llm = ChatOpenAI(openai_api_key=oai_key)
-        llm = ChatOpenAI(openai_api_key=oai_key, model='gpt-4o')
-        db = Chroma(persist_directory=Utils.DB_FOLDER, embedding_function=embeddings, collection_name='collection_1')
-        retriever = db.as_retriever()
+        self.document = document_id
+        print("Using document:", document_id)
+        llm        = ChatOllama(model="llama3.2:3b", temperature=0)
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-        contextualize_q_system_prompt = """Given a chat history and the latest user question \
-            which might reference context in the chat history, formulate a standalone question \
-            which can be understood without the chat history. Do NOT answer the question, \
-            just reformulate it if needed and otherwise return it as is."""
-    
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", contextualize_q_system_prompt),
-                    MessagesPlaceholder("chat_history"),
-                    ("human", "{input}"),
-                ] 
-            )
+        # ── Vector store + retriever ──────────────────────────────────────
+        client     = Utils.mongo_client
+        collection = client[Utils.DATABASE_NAME][Utils.COLLECTION_NAME]
 
-        history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-
-        qa_system_prompt = """You are an assistant for question-answering tasks. \
-            Use the following pieces of retrieved context to answer the question. \
-            If you don't know the answer, just say that you don't know. \
-            Use three sentences maximum and keep the answer concise.\
-
-            {context}"""
-
-        qa_prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", qa_system_prompt),
-                    MessagesPlaceholder("chat_history"),
-                    ("human", "{input}"),
-                ]
-            )
-
-        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
-
-        self.rag_chain = RunnableWithMessageHistory(
-            rag_chain,
-            self.get_session_history,
-            input_messages_key="input",
-            history_messages_key="chat_history",
-            output_messages_key="answer",
+        self.vector_store = MongoDBAtlasVectorSearch(
+            collection=collection,
+            embedding=embeddings,
+            index_name=Utils.VECTOR_INDEX_NAME,
+            text_key="text",
+            embedding_key="embedding",
         )
-          
-    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
-        if session_id not in self.store:
-            self.store[session_id] = ChatMessageHistory()
-        return self.store[session_id]
 
-    def ask(self, question: str) -> str:
-        response = self.rag_chain.invoke(
-            {"input": question},
-            config={"configurable": {"session_id": self.session_id}},
-        )["answer"]
-        return response
+        
+
+        # ── Load chat history from MongoDB ────────────────────────────────
+        self.history = MongoDBChatMessageHistory(
+            connection_string=Utils.MONGODB_URI,
+            session_id=self.session_id,
+            database_name=Utils.DATABASE_NAME,
+            collection_name=Utils.CHAT_COLLECTION,
+        )
+
+        # ── Prompt: answer the question using retrieved context ───────────
+        qa_prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """
+    You are SmartDocs AI, an intelligent document assistant.
+
+    Your job is to answer the user's question ONLY using the retrieved document context provided below.
+
+    Rules:
+    1. Never use your own knowledge or make up information.
+    2. If the answer is not present in the retrieved context, reply:
+    "I couldn't find this information in the uploaded document."
+    3. Answer in clear, professional English.
+    4. Keep the answer concise (3-6 sentences unless more detail is required).
+    5. If the retrieved context contains page information, naturally mention the page number in your answer when appropriate.
+    6. Do not mention the retrieval process, embeddings, vector database, or AI models.
+    7. If multiple retrieved chunks contain relevant information, combine them into one coherent answer.
+    8. If the question is ambiguous, ask a clarifying question instead of guessing.
+
+    Retrieved Context:
+    -----------------
+    {context}
+    """
+        ),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{question}"),
+])
+
+        # ── RAG chain (LCEL) ──────────────────────────────────────────────
+        # Step 1: retrieve docs using the question
+        # Step 2: format docs into context string
+        # Step 3: fill prompt and call LLM
+
+        self.qa_chain = (
+            qa_prompt
+            | llm
+            | StrOutputParser()
+        )
+
+    def ask(self, question: str):
+
+        # Load chat history
+        chat_history = self.history.messages
+
+        search_kwargs = {
+            "k": Utils.DEFAULT_TOP_K
+        }
+
+        if self.document:
+            search_kwargs["pre_filter"] = {
+                "document_id": self.document
+            }
+
+        results = self.vector_store.similarity_search_with_score(
+            question,
+            **search_kwargs
+        )
+
+        docs = [doc for doc, score in results]
+
+        scores = [score for doc, score in results]
+
+        context = _format_docs(docs)
+
+        # Generate answer
+        answer = self.qa_chain.invoke({
+            "question": question,
+            "context": context,
+            "chat_history": chat_history,
+        })
+
+        # Save history
+        self.history.add_user_message(question)
+        self.history.add_ai_message(answer)
+
+        # Return structured response
+        return {
+            "answer": answer,
+            "documents": docs,
+            "scores": scores,
+            "retrieved_chunks": docs,
+        }

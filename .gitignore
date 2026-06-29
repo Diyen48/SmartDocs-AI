@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+.ragvenv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
+.early.coverage/
+# Streamlit
+.streamlit/
+
+# Uploaded PDFs (optional)
+README.md
+uploads/
+requirements.txt
+# OS files
+.DS_Store
+Thumbs.db
+eu_ai_act.pdf
