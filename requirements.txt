@@ -13,3 +13,7 @@ requests
 pymupdf
 tqdm
 python-dotenv
+
+langchain-groq
+langchain-huggingface
+sentence-transformers

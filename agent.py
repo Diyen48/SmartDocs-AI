@@ -1,5 +1,6 @@
 from pymongo import MongoClient
-from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch, MongoDBChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
@@ -31,17 +32,23 @@ def _format_docs(docs):
 
 
 class NewsChat:
-    def __init__(self, session_id: str, document_id: str = None):
+    def __init__(self, session_id: str, document_id: str = None,username=None):
         print("Creating NewsChat...")
         if document_id:
             self.session_id = f"{session_id}_{document_id}"
         else:
             self.session_id = session_id
-
+        self.username=username
         self.document = document_id
         print("Using document:", document_id)
-        llm        = ChatOllama(model="llama3.2:3b", temperature=0)
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        llm = ChatGroq(
+            groq_api_key=Utils.GROQ_API_KEY,
+            model_name="llama-3.3-70b-versatile",
+            temperature=0
+        )
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
 
         # ── Vector store + retriever ──────────────────────────────────────
         client     = Utils.mongo_client
@@ -113,11 +120,13 @@ class NewsChat:
         search_kwargs = {
             "k": Utils.DEFAULT_TOP_K
         }
-
+        pre_filter={}
         if self.document:
-            search_kwargs["pre_filter"] = {
-                "document_id": self.document
-            }
+            pre_filter["document_id"]=self.document
+        if self.username:
+            pre_filter["username"]=self.username
+        if pre_filter:
+            search_kwargs["pre_filter"]=pre_filter
 
         results = self.vector_store.similarity_search_with_score(
             question,

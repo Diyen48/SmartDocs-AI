@@ -41,7 +41,8 @@ def create_chat(chat_id: str):
         or ST.session_state.get("chat_document") != document_id):
         ST.session_state.news_chat = Agent.NewsChat(
             chat_id,
-            document_id
+            document_id,
+            ST.session_state["username"]
         )
 
 
@@ -122,7 +123,8 @@ def upload_pdf():
 
         document_id = embed.embed_and_store_from_path(
             save_path,
-            uploaded_file.name
+            uploaded_file.name,
+            ST.session_state["username"]
         )
 
     ST.session_state["document_id"] = document_id
@@ -137,12 +139,31 @@ def main():
     ST.set_page_config(page_title="AI Doc Assistant", page_icon="📄")
     ST.title("📄 SmartDocs AI")
     ST.caption("Chat with your PDF documents using Local AI + RAG")
+    if "username" not in ST.session_state:
+
+        ST.subheader("👤 Enter Username")
+
+        username = ST.text_input("Username")
+
+        if ST.button("Continue"):
+
+            if username.strip():
+
+                ST.session_state["username"] = username.strip()
+
+                ST.rerun()
+
+        ST.stop()
     with ST.sidebar:
+        if ST.button("Logout"):
+            ST.session_state.clear()
+            ST.rerun()
+        ST.success(f"👤 {ST.session_state['username']}")
         ST.header("📄 Documents")
         ST.subheader("⬆ Upload PDF")
         upload_pdf()
         ST.divider()
-        documents = embed.get_uploaded_documents()
+        documents = embed.get_uploaded_documents(ST.session_state["username"])
         if documents:
             ST.subheader("📄 My Documents")
             selected = ST.selectbox(

@@ -4,7 +4,7 @@ import requests
 from pymongo import MongoClient
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 import utils as Utils
 import uuid
@@ -87,7 +87,9 @@ def _store_chunks(chunks: list, doc_name: str):
     Also save filename and page number.
     """
 
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
 
     client = Utils.mongo_client
     collection = client[Utils.DATABASE_NAME][Utils.COLLECTION_NAME]
@@ -124,11 +126,11 @@ def embed_and_store(url: str, doc_name: str):
     _store_chunks(chunks, doc_name)
 
 
-def embed_and_store_from_path(file_path: str, doc_name: str):
+def embed_and_store_from_path(file_path: str, doc_name: str,username):
 
     client = Utils.mongo_client
     docs = client[Utils.DATABASE_NAME][Utils.DOCUMENT_COLLECTION]
-    existing = docs.find_one({"filename": doc_name})
+    existing = docs.find_one({"filename": doc_name, "username": username})
     if existing:
         return existing["document_id"]
     document_id = str(uuid.uuid4())
@@ -144,13 +146,15 @@ def embed_and_store_from_path(file_path: str, doc_name: str):
     for chunk in chunks:
         chunk.metadata["document_id"] = document_id
         chunk.metadata["filename"] = doc_name
+        chunk.metadata["username"] = username
 
     _store_chunks(chunks, doc_name)
 
     
     docs.insert_one({
         "document_id": document_id,
-        "filename": doc_name
+        "filename": doc_name,
+        "username": username
     })
     return document_id
 
@@ -164,7 +168,7 @@ def embed_uploaded_pdf(file_path: str):
 
     _store_chunks(chunks, os.path.basename(file_path))
 
-def get_uploaded_documents():
+def get_uploaded_documents(username):
 
     client = Utils.mongo_client
 
@@ -173,7 +177,7 @@ def get_uploaded_documents():
     ][Utils.DOCUMENT_COLLECTION]
     docs = {}
 
-    for doc in collection.find({}, {"_id": 0}):
+    for doc in collection.find({"username":username}, {"_id": 0}):
         docs[doc["filename"]] = doc
     return list(docs.values())
 
