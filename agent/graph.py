@@ -1,5 +1,7 @@
 from typing import TypedDict
 from agent.models import CompareDocuments
+from agent.prompts import SUMMARY_PROMPT
+from agent.summarizer import GROUP_SIZE, summarize_document
 from agent.tools import compare_tool, extract_tool, qa_tool, _format_context,summary_tool
 from langgraph.graph import StateGraph, START, END
 from agent.router import Route
@@ -219,11 +221,9 @@ class SmartDocsGraph:
     def summary_node(self, state):
 
         docs = self.context.get_document()
-
-        answer = summary_tool(
-            self.context.llm,
-            _format_context(docs),
-        )
+        if len(docs) <= GROUP_SIZE:
+            return summary_tool(self.context.llm,_format_context(docs))
+        answer = summarize_document(self.context.llm,docs)
 
         return {
             "answer": answer,
