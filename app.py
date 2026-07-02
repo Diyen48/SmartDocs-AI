@@ -1,6 +1,6 @@
 import os
 import streamlit as ST
-import agent as Agent
+import assistant as Assistant
 import utils as Utils
 import embed
 
@@ -39,7 +39,7 @@ def create_chat(chat_id: str):
 
     if ("news_chat" not in ST.session_state
         or ST.session_state.get("chat_document") != document_id):
-        ST.session_state.news_chat = Agent.NewsChat(
+        ST.session_state.news_chat = Assistant.NewsChat(
             chat_id,
             document_id,
             ST.session_state["username"]

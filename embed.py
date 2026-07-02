@@ -18,44 +18,6 @@ def load_pdf_from_path(file_path: str) -> list:
     return loader.load()
 
 
-def load_pdf_from_url(url: str) -> list:
-    """
-    Download a PDF from a URL and load it as LangChain Documents.
-    Raises a clear error if the download fails or returns a non-PDF.
-    """
-    print(f"Downloading PDF from: {url}")
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    response = requests.get(url, headers=headers, timeout=60)
-    response.raise_for_status()
-
-    # Validate we actually got a PDF (not a 403 HTML/text response)
-    if not response.content or not response.content.startswith(b"%PDF"):
-        raise ValueError(
-            f"\n\nPDF download failed — server returned {len(response.content)} bytes "
-            f"instead of a PDF.\n"
-            f"This usually means the site is blocking automated downloads.\n\n"
-            f"Fix: Download the PDF manually from:\n  {url}\n"
-            f"Then place it in your project folder and call:\n"
-            f"  embed.embed_and_store_from_path('eu_ai_act.pdf', 'EU AI Act')\n"
-        )
-
-    # PyPDFLoader needs a file path, so save to a temp file
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(response.content)
-        tmp_path = tmp.name
-
-    try:
-        pages = load_pdf_from_path(tmp_path)
-    finally:
-        os.remove(tmp_path)
-
-    return pages
-
 
 # ── Splitting ─────────────────────────────────────────────────────────────────
 
@@ -67,18 +29,6 @@ def split_documents(pages: list) -> list:
     )
     return splitter.split_documents(pages)
 
-
-# ── MongoDB helpers ───────────────────────────────────────────────────────────
-
-def is_already_embedded() -> bool:
-    """Return True if documents already exist in MongoDB (skip re-embedding)."""
-    try:
-        client = Utils.mongo_client
-        col = client[Utils.DATABASE_NAME][Utils.COLLECTION_NAME]
-        return col.count_documents({}) > 0
-    except Exception as e:
-        print(f"MongoDB check failed: {e}")
-        return False
 
 
 def _store_chunks(chunks: list, doc_name: str):
@@ -116,14 +66,7 @@ def _store_chunks(chunks: list, doc_name: str):
     print("Embedding completed.")
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
-def embed_and_store(url: str, doc_name: str):
-    """Load PDF from URL, split, and store in MongoDB. Main entry point."""
-    pages  = load_pdf_from_url(url)
-    chunks = split_documents(pages)
-    print(f"Loaded {len(pages)} pages → {len(chunks)} chunks")
-    _store_chunks(chunks, doc_name)
+# ── Public API ──────────────────────────────────────────────────────────────
 
 
 def embed_and_store_from_path(file_path: str, doc_name: str,username):
@@ -158,15 +101,6 @@ def embed_and_store_from_path(file_path: str, doc_name: str,username):
     })
     return document_id
 
-def embed_uploaded_pdf(file_path: str):
-    pages = load_pdf_from_path(file_path)
-
-    chunks = split_documents(pages)
-
-    print(f"Loaded {len(pages)} pages")
-    print(f"Created {len(chunks)} chunks")
-
-    _store_chunks(chunks, os.path.basename(file_path))
 
 def get_uploaded_documents(username):
 
@@ -182,4 +116,4 @@ def get_uploaded_documents(username):
     return list(docs.values())
 
 if __name__ == "__main__":
-    embed_and_store(Utils.EUROPEAN_ACT_URL, "EU AI Act")
+    pass

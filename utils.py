@@ -16,6 +16,7 @@ COLLECTION_NAME   = OS.getenv('COLLECTION_NAME', 'legal_documents')
 CHAT_COLLECTION   = OS.getenv('CHAT_COLLECTION', 'chat_history')
 VECTOR_INDEX_NAME = OS.getenv('VECTOR_INDEX_NAME', 'vector_index')
 DEFAULT_TOP_K     = int(OS.getenv('DEFAULT_TOP_K', '4'))
+MAX_HISTORY_MESSAGES = 30
 GROQ_API_KEY = OS.getenv('GROQ_API_KEY')
 mongo_client = MongoClient(MONGODB_URI)
 def load_articles(file_name) -> list:
