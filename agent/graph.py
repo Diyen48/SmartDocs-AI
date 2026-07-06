@@ -34,15 +34,17 @@ class SmartDocsGraph:
         workflow.add_node("compare",self.compare_node)
         workflow.add_node("search_all",self.qa_node)
         workflow.add_node("extract",self.extract_node)
+
         workflow.add_edge(START, "router")
         workflow.add_edge("qa", "save_history")
-        workflow.add_edge("save_history", END)
 
         workflow.add_edge("summary","save_history")
 
         workflow.add_edge("compare","save_history")
 
         workflow.add_edge("extract","save_history")
+        workflow.add_edge("search_all","save_history")
+        workflow.add_edge("save_history", END)
 
         self.router_llm = self.context.llm.with_structured_output(Route)
 
@@ -221,9 +223,11 @@ class SmartDocsGraph:
     def summary_node(self, state):
 
         docs = self.context.get_document()
-        if len(docs) <= GROUP_SIZE:
-            return summary_tool(self.context.llm,_format_context(docs))
-        answer = summarize_document(self.context.llm,docs)
+
+        answer = summarize_document(
+            self.context.llm,
+            docs,
+        )
 
         return {
             "answer": answer,
