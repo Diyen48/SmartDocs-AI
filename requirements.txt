@@ -1,20 +1,26 @@
 streamlit
 
+langgraph
+
 langchain
 langchain-core
 langchain-community
 langchain-mongodb
+langchain-groq
+langchain-huggingface
 
 pymongo
 
-tiktoken>=0.11.0
+sentence-transformers
 
-requests
-pymupdf
 pypdf
-tqdm
+pymupdf
+
 python-dotenv
 
-langchain-groq
-langchain-huggingface
-sentence-transformers
+tiktoken
+
+tqdm
+requests
+
+tourchvision
